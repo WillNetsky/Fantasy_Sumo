@@ -5,7 +5,7 @@ This project is a data science pipeline designed to predict the performance of s
 The core of this project lies in its comprehensive feature engineering, which transforms raw banzuke (rankings) and historical performance data into a rich feature set for the model.
 
 ---
-
+  
 ## Feature Engineering
 
 The predictive power of the model is derived from a wide array of engineered features that aim to capture a rikishi's current form, career trajectory, physical attributes, and the context of the tournament environment.

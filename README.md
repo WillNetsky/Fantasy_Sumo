@@ -1,60 +1,271 @@
 # Fantasy Sumo Win Predictor
 
-This project is a data science pipeline designed to predict the performance of sumo wrestlers (rikishi) in upcoming tournaments (basho). Using historical data scraped from [SumoDB](https://sumodb.sumogames.de/), it trains a machine learning model to forecast the number of wins a rikishi will achieve in a 15-day tournament.
+A data science pipeline for predicting sumo wrestler performance. Scrapes historical data from [SumoDB](https://sumodb.sumogames.de/), trains ML models to predict wins, and generates fantasy sumo draft helpers with probabilistic scoring.
 
-The core of this project lies in its comprehensive feature engineering, which transforms raw banzuke (rankings) and historical performance data into a rich feature set for the model.
+## Quick Start
 
----
-  
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Run predictions for an upcoming tournament
+python predict_wins.py --data-file banzuke_detailed.csv --model-file sumo_win_predictor_model.joblib
+
+# Train the direct win prediction model
+python train_model_lgbm.py
+
+# Run tournament simulation
+python simulate_tournament_v2.py --tournament 202601 --simulations 500
+```
+
+## Features
+
+- **Win Prediction**: Predicts total wins for each wrestler in a 15-day tournament
+- **Fantasy Scoring**: Calculates expected fantasy points including kachi-koshi bonus, kinboshi, and yusho probability
+- **Matchup Prediction**: Predicts individual bout outcomes with 63% accuracy
+- **Tournament Simulation**: Monte Carlo simulation of full tournaments
+- **HTML Reports**: Generates styled draft helper reports
+
+## Model Performance
+
+### Direct Win Prediction (LightGBM)
+| Metric | Value |
+|--------|-------|
+| Mean Absolute Error | 1.61 wins |
+| Within 2 wins | 67% |
+| Within 3 wins | 89% |
+| Pearson Correlation | 0.415 |
+
+### Matchup Prediction
+| Model Version | Accuracy | AUC | Key Features |
+|---------------|----------|-----|--------------|
+| V2 (baseline) | 59.6% | 0.644 | Rank, style, H2H |
+| V3 | 62.4% | 0.671 | + ELO ratings |
+| V4 (best) | **63.0%** | **0.691** | + Stacking ensemble |
+| V5 | 62.5% | 0.680 | + Glicko ratings |
+| V6 | 62.8% | 0.685 | + Career features |
+
+### Accuracy by Rank Tier
+| Tier | MAE (wins) |
+|------|------------|
+| Yokozuna/Ozeki | 0.73 |
+| Maegashira 6-10 | 1.01 |
+| Maegashira 11+ | 1.59 |
+| Juryo | 1.71 |
+| Maegashira 1-5 | 1.96 |
+| Sekiwake/Komusubi | 2.42 |
+
+## Architecture
+
+### Data Flow
+```
+SumoDB (sumodb.sumogames.de)
+    |
+    v sumodb_scrape.py
+banzuke_detailed.csv + match_history_with_kimarite.csv
+    |
+    v sumo_utils.py (feature engineering)
+    |
+    +---> train_model_lgbm.py --> sumo_win_predictor_model.joblib
+    |                                 |
+    |                                 v
+    |                             predict_wins.py --> prediction_report_YYYYMM.{csv,html}
+    |
+    +---> train_matchup_model_v4.py --> matchup_model_v4.joblib
+                                            |
+                                            v
+                                        simulate_tournament_v3.py --> simulation results
+```
+
+### Key Files
+
+| File | Description |
+|------|-------------|
+| `sumo_utils.py` | Feature engineering module with `preprocess_data()` |
+| `predict_wins.py` | Main prediction pipeline with fantasy scoring |
+| `train_model_lgbm.py` | Direct win prediction model training |
+| `train_matchup_model_v4.py` | Best matchup model (63% accuracy) |
+| `simulate_tournament_v3.py` | Tournament simulation with JSA scheduling rules |
+| `predict_wins_hybrid.py` | Hybrid approach combining both models |
+| `sumodb_scrape.py` | Data scraping from SumoDB |
+| `compare_predictions.py` | Prediction accuracy analysis |
+
 ## Feature Engineering
 
-The predictive power of the model is derived from a wide array of engineered features that aim to capture a rikishi's current form, career trajectory, physical attributes, and the context of the tournament environment.
+Features are generated in `sumo_utils.preprocess_data()`:
 
-### 1. Core Rikishi Attributes
+### Core Attributes
+- `age`, `height_m`, `weight_kg`, `bmi`
+- `has_uni_sumo` - university sumo background
 
-These are fundamental, relatively static attributes of a wrestler.
+### Rank-Based Features
+- `absolute_rank_score` - continuous score across all divisions
+- `rank_gap` - current rank vs career-best rank
+- `division_numeric`, `rank_in_division`
+- Previous rank features for momentum
 
--   **Physicality**: `age`, `height_m`, `weight_kg`, and `bmi` are calculated for each tournament to track physical development over a rikishi's career.
--   **Background**: `has_uni_sumo` is a binary flag indicating whether a rikishi has a university sumo background, which often correlates with a higher initial skill level.
+### Performance Features
+- `prev_w`, `prev_l` - previous tournament record
+- `kachi_koshi_streak` - consecutive winning records
+- `win_consistency` - standard deviation over last 6 basho
+- `was_kyujo_last_basho` - injury return flag
 
-### 2. Rank-Based Features
+### Contextual Features
+- `heya_strength` - stable's average rank
+- `division_strength` - division's average rank
 
-Rank is the single most important factor in sumo. These features aim to quantify it in various ways.
+### Fighting Style (Matchup Model)
+- 5 technique categories: oshi, yotsu, pull, leg, okuri
+- Offensive ratios (`{cat}_ratio`) and defensive vulnerabilities (`vuln_{cat}`)
+- Style advantage features (A's strength vs B's weakness)
 
--   **`absolute_rank_score`**: A single, continuous numerical score that represents a rikishi's standing across all six divisions. The scoring is carefully weighted to reflect the vast skill gaps between divisions (e.g., the gap between Makuuchi and Juryo is much larger than between Juryo and Makushita).
--   **`division_numeric` & `rank_in_division`**: The rank is split into two components: a numerical score for the division (e.g., Makuuchi=2, Juryo=1) and a score for the rank *within* that division. This allows the model to learn the distinct effects of being, for example, a high-ranked Maegashira versus a low-ranked Komusubi, even if their absolute scores are similar.
--   **`rank_gap`**: The difference between a rikishi's current `absolute_rank_score` and their historical `highest_rank_score`. A large positive gap can indicate a rikishi is in a slump or decline, while a gap of zero means they are at their career-best rank.
--   **Previous Rank Features**: `prev_division_numeric` and `prev_rank_in_division` from the prior tournament are included to capture rank momentum.
+### Advanced Features
+- `oshi_ratio` - pushing vs grappling style
+- `avg_h2h_win_pct` - head-to-head win percentage
+- ELO/Glicko ratings (matchup models V3+)
 
-### 3. Performance & Momentum Features
+## Usage
 
-These features track a rikishi's recent performance to gauge their current form.
+### Data Scraping
+```bash
+# Scrape banzuke data from SumoDB
+python sumodb_scrape.py
 
--   **`prev_w` & `prev_l`**: The number of wins and losses from the previous basho. This is a powerful short-term predictor.
--   **`was_kyujo_last_basho`**: A binary flag indicating if the rikishi was absent (due to injury) in the last tournament. Returning from injury is a significant, often negative, performance factor.
--   **`kachi_koshi_streak`**: A count of consecutive tournaments with a winning record (8 wins or more). This is a key indicator of a rikishi's momentum and confidence.
--   **`win_consistency`**: The standard deviation of wins over the last six tournaments. A low value indicates a highly consistent performer, while a high value suggests volatility.
+# Scrape match history with kimarite
+python scrape_kimarite.py
+```
 
-### 4. Contextual & Relational Features
+### Training Models
+```bash
+# Direct win prediction model (recommended)
+python train_model_lgbm.py
 
-A rikishi's performance is also influenced by their environment and the quality of their competition.
+# Matchup prediction models
+python train_matchup_model_v4.py  # Best accuracy (63%)
+```
 
--   **`heya_strength`**: The mean `absolute_rank_score` of all rikishi from the same stable (heya) in a given tournament. This serves as a proxy for the quality of their training environment and partners.
--   **`division_strength`**: The mean `absolute_rank_score` of all *other* rikishi in the same division. This feature quantifies the toughness of the competition a rikishi will face.
+### Running Predictions
+```bash
+# Generate predictions for upcoming tournament
+python predict_wins.py --data-file banzuke_detailed.csv --model-file sumo_win_predictor_model.joblib
 
-### 5. Advanced Features from Match History
+# Hybrid prediction (combines direct + simulation)
+python predict_wins_hybrid.py --tournament 202601
+```
 
-By incorporating detailed match-by-match history, we can generate sophisticated features about fighting style and head-to-head matchups.
+### Tournament Simulation
+```bash
+# Run Monte Carlo simulation
+python simulate_tournament_v3.py --tournament 202601 --simulations 500
+```
 
--   **`oshi_ratio`**: A measure of a rikishi's fighting style, calculated as the career ratio of "pushing/thrusting" wins (Oshi-sumo) to "grappling/belt" wins (Yotsu-sumo). This helps the model understand style matchups (e.g., does a pusher struggle against a belt specialist?).
--   **`avg_opponent_oshi_ratio`**: The average `oshi_ratio` of all other rikishi in the division. This provides context for how a rikishi's personal style might fare against the division's meta.
--   **`avg_h2h_win_pct`**: For each rikishi, this is their average historical head-to-head win percentage against every other rikishi in their division for the upcoming tournament. This is a powerful, direct measure of their expected performance against the specific field of competitors.
+### Comparing Predictions
+```bash
+# Analyze prediction accuracy against actual results
+python compare_predictions.py --predictions prediction_report_202601.csv --actuals actual_results.csv
+```
 
----
+## Domain Concepts
 
-## Modeling & Prediction
+### Sumo Terminology
+| Term | Description |
+|------|-------------|
+| Basho | Tournament (6 per year, 15 days each) |
+| Banzuke | Official rankings published before each tournament |
+| Kachi-koshi | Winning record (8+ wins in 15 matches) |
+| Kyujo | Tournament withdrawal due to injury |
+| Kinboshi | Upset bonus when Maegashira defeats Yokozuna |
+| Yusho | Tournament championship |
+| Jun-yusho | Tournament runner-up |
+| Heya | Sumo stable (training facility) |
 
-The engineered features are used to train a `RandomForestRegressor` model, with the number of wins (`w`) as the target variable. The trained model is then used in the prediction pipeline to:
+### Rank Hierarchy (highest to lowest)
+```
+Yokozuna (Y) > Ozeki (O) > Sekiwake (S) > Komusubi (K) > Maegashira (M) > Juryo (J)
+```
 
-1.  Generate a **Fantasy Sumo Draft Helper** for upcoming tournaments, which includes a `predicted_fantasy_score` that probabilistically accounts for points from winning records (kachi-koshi) and potential upsets (kinboshi).
-2.  Produce a **Prediction Report** for completed tournaments to evaluate model performance against actual results.
+Ranks include position and side: "M1e" = Maegashira 1 East
+
+### Tournament ID Format
+`YYYYMM` (e.g., 202601 = January 2026)
+
+## File Structure
+
+```
+Fantasy_Sumo/
+├── sumo_utils.py                 # Feature engineering
+├── sumodb_scrape.py              # Data scraping
+├── scrape_kimarite.py            # Match history scraping
+│
+├── train_model_lgbm.py           # Direct win model training
+├── train_matchup_model.py        # Matchup model V1
+├── train_matchup_model_v2.py     # Matchup model V2
+├── train_matchup_model_v3.py     # + ELO ratings
+├── train_matchup_model_v4.py     # + Stacking (best)
+├── train_matchup_model_v5.py     # + Glicko ratings
+├── train_matchup_model_v6.py     # + Career features
+│
+├── predict_wins.py               # Main prediction pipeline
+├── predict_wins_hybrid.py        # Hybrid predictions
+├── compare_predictions.py        # Accuracy analysis
+│
+├── simulate_tournament.py        # Tournament sim V1
+├── simulate_tournament_v2.py     # Tournament sim V2
+├── simulate_tournament_v3.py     # + JSA scheduling
+│
+├── banzuke_detailed.csv          # Wrestler data
+├── match_history_with_kimarite.csv  # Match history
+├── sumo_win_predictor_model.joblib  # Trained direct model
+├── matchup_model_v4.joblib       # Trained matchup model
+│
+└── Notebooks/                    # Jupyter notebooks
+```
+
+## Known Limitations
+
+1. **Matchup accuracy ceiling (~63%)** - Sumo has high inherent variance
+2. **Injuries unpredictable** - Cannot predict mid-tournament withdrawals
+3. **Sparse H2H data** - 65% of wrestler pairs have only 1 previous meeting
+4. **Scheduling uncertainty** - Exact matchups unknown before tournament
+5. **Error accumulation** - Simulating 15 days compounds prediction errors
+
+## Future Improvements
+
+### High Priority
+- [ ] **Injury/health tracking** - Add pre-tournament health indicators to predict kyujo risk
+- [ ] **In-tournament updates** - Day-by-day prediction updates using current record (currently not used for days 8-15)
+- [ ] **Better torikumi prediction** - Improve matchup scheduling algorithm accuracy
+- [ ] **Ensemble approach** - Combine direct model + simulation predictions with learned weights
+
+### Medium Priority
+- [ ] **Neural network models** - Explore deep learning for non-linear pattern capture
+- [ ] **Physical matchup interactions** - Model how height/weight combinations affect outcomes
+- [ ] **Day-of-tournament features** - Some wrestlers perform differently on certain days
+- [ ] **Heya relationship features** - Training partners may know each other's weaknesses
+- [ ] **Pre-tournament news integration** - Form updates between basho
+
+### Lower Priority
+- [ ] **Betting odds integration** - Use market data as a feature (if available)
+- [ ] **Venue/location features** - Home vs away effects
+- [ ] **Time decay on H2H** - Weight recent matches more heavily
+- [ ] **Technique sequence analysis** - Model how bouts unfold, not just outcomes
+
+### Data Improvements
+- [ ] **Expand historical data** - Include more lower division matches
+- [ ] **Add wrestler metadata** - Injury history, training camp reports
+- [ ] **Real-time data pipeline** - Automated scraping during tournaments
+
+### Infrastructure
+- [ ] **Web interface** - Interactive dashboard for predictions
+- [ ] **API service** - Serve predictions via REST API
+- [ ] **Automated retraining** - Update models after each tournament
+
+## References
+
+- SumoDB: https://sumodb.sumogames.de/
+- Sumo Reference: http://sumoreference.com/
+- Japan Sumo Association: https://www.sumo.or.jp/
+
+## License
+
+This project is for educational and personal use. Data is scraped from SumoDB with respect to their terms of service.

@@ -22,7 +22,13 @@ FEATURES = [
     'division_strength',
     'oshi_ratio',
     'avg_opponent_oshi_ratio',
-    'avg_h2h_win_pct'
+    'avg_h2h_win_pct',
+    # Injury risk features
+    'prev_absences',
+    'absences_last_3',
+    'completion_rate_last_3',
+    'age_x_prev_absences',
+    'basho_since_full'
 ]
 TARGET = 'w'
 
@@ -143,7 +149,8 @@ def train_and_save_stacking_model(file_path: str, model_output_path: str):
 
     model_and_features = {
         'model': stacking_model,
-        'features': FEATURES
+        'features': FEATURES,
+        'mae': mae  # Save MAE for use in prediction/fantasy scoring
     }
     print(f"Saving stacking model to '{model_output_path}'...")
     joblib.dump(model_and_features, model_output_path)

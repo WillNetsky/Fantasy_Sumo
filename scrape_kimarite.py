@@ -174,13 +174,13 @@ if __name__ == "__main__":
     parser.add_argument(
         '--data-file',
         type=str,
-        default="banzuke_detailed.csv",
+        default="data/banzuke_detailed.csv",
         help="Path to the historical banzuke data CSV to source tournament IDs."
     )
     parser.add_argument(
         '--output-file',
         type=str,
-        default="match_history_with_kimarite.csv",
+        default="data/match_history_with_kimarite.csv",
         help="Path to save the scraped match data."
     )
     args = parser.parse_args()

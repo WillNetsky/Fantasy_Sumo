@@ -4,13 +4,50 @@ import pandas as pd
 import re
 import time
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 # --- Configuration ---
 BASE_URL = "https://sumodb.sumogames.de/"
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 }
-OUTPUT_FILE = "banzuke_detailed.csv"
+OUTPUT_FILE = "data/banzuke_detailed.csv"
+
+def get_university_status(wrestler_id: str) -> int:
+    """
+    Determines if a wrestler has a university sumo background.
+    Checks for 'University' field or 'Tsukedashi' entry on their SumoDB profile.
+    """
+    if not wrestler_id:
+        return 0
+    
+    url = f"{BASE_URL}Rikishi.aspx?r={wrestler_id}"
+    try:
+        # Use a short timeout to prevent hanging on individual profiles
+        response = requests.get(url, headers=HEADERS, timeout=5)
+        if response.status_code != 200:
+            return 0
+            
+        soup = BeautifulSoup(response.content, 'lxml')
+        
+        # Iterate through all rows in tables to find relevant fields
+        for row in soup.find_all('tr'):
+            cells = row.find_all('td')
+            if len(cells) < 2:
+                continue
+            
+            header = cells[0].get_text(strip=True)
+            value = cells[1].get_text(strip=True)
+            
+            if "University" in header and value:
+                return 1
+            if "Entry" in header and "Tsukedashi" in value:
+                return 1
+                
+    except Exception:
+        return 0
+        
+    return 0
 
 # These parameters will be used to fetch the banzuke pages.
 # The new dynamic scraper will adapt to whatever columns these params generate.
@@ -148,7 +185,7 @@ if __name__ == "__main__":
     default_start_basho = "199107"
     # End basho: set to a future date or the specific target.
     # Setting it to something far in the future (e.g., 2030) allows it to just catch everything new.
-    end_basho = "202511"
+    end_basho = "202603"
 
     # 2. Set a delay between requests to be polite to the server.
     delay_seconds = 2
@@ -211,6 +248,19 @@ if __name__ == "__main__":
             if new_wrestler_data:
                 print("\nScraping complete. Merging with existing data...")
                 new_df = pd.DataFrame(new_wrestler_data)
+
+                print("Fetching university background data for new records...")
+                # Get unique wrestler IDs to avoid redundant requests
+                unique_ids = new_df['wrestler_id'].dropna().unique()
+                
+                def fetch_uni_status(wid):
+                    return wid, get_university_status(wid)
+                
+                with ThreadPoolExecutor(max_workers=10) as executor:
+                    results = list(executor.map(fetch_uni_status, unique_ids))
+                
+                uni_cache = dict(results)
+                new_df['Has_university_sumo'] = new_df['wrestler_id'].map(uni_cache).fillna(0).astype(int)
                 
                 # Combine with existing data
                 combined_df = pd.concat([existing_df, new_df], ignore_index=True)

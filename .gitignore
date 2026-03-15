@@ -1,4 +1,19 @@
 /.idea/
 /.ipynb_checkpoints/
 /venv/
+/.venv/
 /Notebooks/
+
+# Data files (too large for git)
+data/
+outputs/
+
+# Trained model binaries
+*.joblib
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Lock files
+.~lock.*

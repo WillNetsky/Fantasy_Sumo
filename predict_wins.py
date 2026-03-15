@@ -7,6 +7,7 @@ import joblib
 import argparse
 from bs4 import BeautifulSoup
 from scipy.stats import norm
+from concurrent.futures import ThreadPoolExecutor
 from sumo_utils import preprocess_data, get_divisional_rank_features, _parse_rank
 
 # --- Configuration ---
@@ -84,16 +85,25 @@ def calculate_fantasy_score(results_df: pd.DataFrame, model_mae: float, n_sims: 
             yusho_winners_indices = np.where(wins_this_sim == yusho_wins)[0]
             yusho_counts[yusho_winners_indices] += 1
             
-            # Find jun-yusho winner(s)
-            if len(yusho_winners_indices) == 1: # Only one yusho winner
+            # Find jun-yusho winner(s) - handle both single winner and tie scenarios
+            if len(yusho_winners_indices) == 1:
+                # Single yusho winner: jun-yusho goes to second-highest
                 second_highest_wins = -1
                 for j, wins in enumerate(wins_this_sim):
                     if wins < yusho_wins and wins > second_highest_wins:
                         second_highest_wins = wins
-                
+
                 if second_highest_wins != -1:
                     jun_yusho_winners_indices = np.where(wins_this_sim == second_highest_wins)[0]
                     jun_yusho_counts[jun_yusho_winners_indices] += 1
+            else:
+                # Multiple yusho winners (tie): all tied wrestlers except one get jun-yusho credit
+                # In practice, one is declared yusho winner, others are jun-yusho
+                # We distribute jun-yusho probability among all tied wrestlers proportionally
+                n_tied = len(yusho_winners_indices)
+                if n_tied > 1:
+                    # Each tied wrestler has (n-1)/n chance of being jun-yusho
+                    jun_yusho_counts[yusho_winners_indices] += (n_tied - 1) / n_tied
 
         # Calculate probabilities and points
         yusho_prob = yusho_counts / n_sims
@@ -177,6 +187,42 @@ def calculate_predicted_kinboshi(df_to_predict: pd.DataFrame, match_history_df: 
     return pd.DataFrame(all_kinboshi_predictions) if all_kinboshi_predictions else pd.DataFrame(columns=['rikishi', 'predicted_kinboshi_wins'])
 
 
+def get_university_status(wrestler_id: str) -> int:
+    """
+    Determines if a wrestler has a university sumo background.
+    Checks for 'University' field or 'Tsukedashi' entry on their SumoDB profile.
+    """
+    if not wrestler_id:
+        return 0
+    
+    url = f"{BASE_URL}Rikishi.aspx?r={wrestler_id}"
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=5)
+        if response.status_code != 200:
+            return 0
+            
+        soup = BeautifulSoup(response.content, 'lxml')
+        
+        # Iterate through all rows in tables to find relevant fields
+        for row in soup.find_all('tr'):
+            cells = row.find_all('td')
+            if len(cells) < 2:
+                continue
+            
+            header = cells[0].get_text(strip=True)
+            value = cells[1].get_text(strip=True)
+            
+            if "University" in header and value:
+                return 1
+            if "Entry" in header and "Tsukedashi" in value:
+                return 1
+                
+    except Exception:
+        return 0
+        
+    return 0
+
+
 def scrape_banzuke(basho_id: int) -> pd.DataFrame:
     """
     Scrapes the banzuke for a given basho.
@@ -240,6 +286,14 @@ def scrape_banzuke(basho_id: int) -> pd.DataFrame:
         wrestlers_data.append(data)
 
     df = pd.DataFrame(wrestlers_data)
+    
+    if not df.empty:
+        print("Fetching university background data for rikishi...")
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            uni_results = list(executor.map(get_university_status, df['wrestler_id']))
+        # Create 'university' column that preprocess_data() expects to generate 'has_uni_sumo'
+        df['university'] = [('Yes' if x == 1 else None) for x in uni_results]
+
     print(f"Successfully scraped {len(df)} rikishi for basho {basho_id}.")
     return df
 
@@ -373,12 +427,23 @@ def generate_html_report(results_df: pd.DataFrame, basho_id: int, is_completed: 
 
 
 def predict_basho(model_bundle: dict, historical_df: pd.DataFrame, match_history_df: pd.DataFrame,
-                  basho_id_to_predict: int):
+                  basho_id_to_predict: int, banzuke_csv: str = None):
     print(f"\n--- Processing Basho: {basho_id_to_predict} ---")
     model, features = model_bundle['model'], model_bundle['features']
     print(f"Model loaded. Predicting with {len(features)} features.")
 
-    new_basho_df = scrape_banzuke(basho_id_to_predict)
+    if banzuke_csv:
+        print(f"Loading banzuke from CSV: {banzuke_csv}")
+        new_basho_df = pd.read_csv(banzuke_csv)
+        new_basho_df['tournament_id'] = basho_id_to_predict
+        new_basho_df['w'] = pd.to_numeric(new_basho_df.get('w'), errors='coerce')
+        new_basho_df['l'] = pd.to_numeric(new_basho_df.get('l'), errors='coerce')
+        kinboshi_val = pd.to_numeric(new_basho_df.get('k'), errors='coerce')
+        new_basho_df['k'] = kinboshi_val.fillna(0).astype(int)
+        new_basho_df['hoshitori'] = np.nan
+        print(f"Loaded {len(new_basho_df)} rikishi from CSV.")
+    else:
+        new_basho_df = scrape_banzuke(basho_id_to_predict)
     if new_basho_df.empty: return
 
     is_completed_basho = not pd.to_numeric(new_basho_df['w'], errors='coerce').isnull().all()
@@ -405,9 +470,11 @@ def predict_basho(model_bundle: dict, historical_df: pd.DataFrame, match_history
     df_processed = preprocess_data(combined_df.copy(), match_history_df=match_history_df)
     df_to_predict = df_processed[df_processed['tournament_id'] == basho_id_to_predict].copy()
 
-    X_new_basho = df_to_predict.reindex(columns=features)
-    X_new_basho.dropna(inplace=True)
-    df_to_predict.dropna(subset=features, inplace=True)
+    # Create feature matrix and keep indices aligned
+    X_new_basho = df_to_predict[features].copy()
+    valid_mask = X_new_basho.notna().all(axis=1)
+    X_new_basho = X_new_basho[valid_mask]
+    df_to_predict = df_to_predict[valid_mask].copy()
 
     if X_new_basho.empty:
         print("\nNo valid records for prediction.")
@@ -420,12 +487,13 @@ def predict_basho(model_bundle: dict, historical_df: pd.DataFrame, match_history
     results_df['predicted_wins'] = np.round(predictions, 1)
 
     # --- Calculate Fantasy Score Components ---
-    MODEL_MAE = 2.0 # Using the MAE from our last stacking model run
+    # Try to load MAE from model bundle, fall back to default if not available
+    MODEL_MAE = model_bundle.get('mae', 2.0)
     results_df = calculate_fantasy_score(results_df, model_mae=MODEL_MAE)
 
     kinboshi_predictions_df = calculate_predicted_kinboshi(df_to_predict, match_history_df)
     results_df = pd.merge(results_df, kinboshi_predictions_df, on='rikishi', how='left')
-    results_df['predicted_kinboshi_wins'].fillna(0.0, inplace=True)
+    results_df['predicted_kinboshi_wins'] = results_df['predicted_kinboshi_wins'].fillna(0.0)
     results_df['kinboshi_pts'] = results_df['predicted_kinboshi_wins'] * 2.0
 
     # --- Calculate Total Fantasy Score ---
@@ -440,24 +508,29 @@ def predict_basho(model_bundle: dict, historical_df: pd.DataFrame, match_history
 
     generate_html_report(results_df, basho_id_to_predict, is_completed=is_completed_basho)
     
-    output_filename = f'prediction_report_{basho_id_to_predict}.csv' if is_completed_basho else f'next_basho_predictions_{basho_id_to_predict}.csv'
+    output_filename = f'outputs/prediction_report_{basho_id_to_predict}.csv' if is_completed_basho else f'outputs/next_basho_predictions_{basho_id_to_predict}.csv'
     results_df.to_csv(output_filename, index=False)
     print(f"Results saved to '{output_filename}'")
 
 
 if __name__ == "__main__":
-    BASHO_TO_PREDICT = 202511
+    BASHO_TO_PREDICT = 202603
     parser = argparse.ArgumentParser(description="Predict wins for a sumo tournament.")
-    parser.add_argument('--data-file', type=str, default="banzuke_detailed.csv")
+    parser.add_argument('--data-file', type=str, default="data/banzuke_detailed.csv")
     parser.add_argument('--model-file', type=str, default="sumo_win_predictor_model.joblib")
+    parser.add_argument('--banzuke-csv', type=str, default=None,
+                        help="Path to a manually-built banzuke CSV (use when SumoDB hasn't updated yet).")
+    parser.add_argument('--basho', type=int, default=BASHO_TO_PREDICT,
+                        help=f"Tournament ID to predict (default: {BASHO_TO_PREDICT})")
     args = parser.parse_args()
 
     try:
         model_bundle = joblib.load(args.model_file)
         historical_df = pd.read_csv(args.data_file)
-        match_history_df = pd.read_csv("match_history_with_kimarite.csv")
+        match_history_df = pd.read_csv("data/match_history_with_kimarite.csv")
     except FileNotFoundError as e:
         print(f"Error: A required file was not found. {e}")
         exit()
 
-    predict_basho(model_bundle, historical_df, match_history_df, BASHO_TO_PREDICT)
+    predict_basho(model_bundle, historical_df, match_history_df, args.basho,
+                  banzuke_csv=args.banzuke_csv)

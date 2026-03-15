@@ -9,3 +9,5 @@ lxml
 lightgbm
 tqdm
 xgboost
+flask
+shap

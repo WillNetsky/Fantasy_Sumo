@@ -14,8 +14,11 @@ python predict_wins.py --data-file banzuke_detailed.csv --model-file sumo_win_pr
 # Train the direct win prediction model
 python train_model_lgbm.py
 
-# Run tournament simulation
-python simulate_tournament_v2.py --tournament 202601 --simulations 500
+# Run tournament simulation (v4 with multi-segment scheduling)
+python simulate_tournament_v4.py --tournament 202601 --simulations 500 --scheduling jsa_v2
+
+# Predict next tournament's banzuke
+python simulate_tournament_v4.py --tournament 202601 --simulations 500 --predict-banzuke
 ```
 
 ## Features
@@ -23,7 +26,9 @@ python simulate_tournament_v2.py --tournament 202601 --simulations 500
 - **Win Prediction**: Predicts total wins for each wrestler in a 15-day tournament
 - **Fantasy Scoring**: Calculates expected fantasy points including kachi-koshi bonus, kinboshi, and yusho probability
 - **Matchup Prediction**: Predicts individual bout outcomes with 63% accuracy
-- **Tournament Simulation**: Monte Carlo simulation of full tournaments
+- **Tournament Simulation**: Monte Carlo simulation with realistic JSA-style scheduling
+- **Multi-Segment Scheduling**: 5-segment day groupings (1-3, 4-7, 8-10, 11-12, 13-15) for realistic torikumi
+- **Banzuke Prediction**: Predicts future tournament rankings based on simulated results
 - **HTML Reports**: Generates styled draft helper reports
 
 ## Model Performance
@@ -74,7 +79,12 @@ banzuke_detailed.csv + match_history_with_kimarite.csv
     +---> train_matchup_model_v4.py --> matchup_model_v4.joblib
                                             |
                                             v
-                                        simulate_tournament_v3.py --> simulation results
+                                        simulate_tournament_v4.py
+                                            |
+                                            +---> simulation results
+                                            |
+                                            v banzuke_predictor.py
+                                        predicted_banzuke_YYYYMM.csv
 ```
 
 ### Key Files
@@ -85,7 +95,9 @@ banzuke_detailed.csv + match_history_with_kimarite.csv
 | `predict_wins.py` | Main prediction pipeline with fantasy scoring |
 | `train_model_lgbm.py` | Direct win prediction model training |
 | `train_matchup_model_v4.py` | Best matchup model (63% accuracy) |
-| `simulate_tournament_v3.py` | Tournament simulation with JSA scheduling rules |
+| `simulate_tournament_v4.py` | Tournament simulation with multi-segment scheduling |
+| `torikumi_scheduler.py` | JSA-style matchup scheduling (5 day segments) |
+| `banzuke_predictor.py` | Rank prediction for future tournaments |
 | `predict_wins_hybrid.py` | Hybrid approach combining both models |
 | `sumodb_scrape.py` | Data scraping from SumoDB |
 | `compare_predictions.py` | Prediction accuracy analysis |
@@ -155,8 +167,16 @@ python predict_wins_hybrid.py --tournament 202601
 
 ### Tournament Simulation
 ```bash
-# Run Monte Carlo simulation
-python simulate_tournament_v3.py --tournament 202601 --simulations 500
+# Run Monte Carlo simulation with multi-segment scheduling (recommended)
+python simulate_tournament_v4.py --tournament 202601 --simulations 500 --scheduling jsa_v2
+
+# Scheduling options:
+#   jsa_v2: 5-segment (days 1-3, 4-7, 8-10, 11-12, 13-15) - most realistic
+#   jsa: 2-segment (days 1-7, 8-15) - simpler
+#   simple: basic greedy matching
+
+# Predict next tournament's banzuke based on simulation
+python simulate_tournament_v4.py --tournament 202601 --simulations 500 --predict-banzuke
 ```
 
 ### Comparing Predictions
@@ -211,7 +231,11 @@ Fantasy_Sumo/
 │
 ├── simulate_tournament.py        # Tournament sim V1
 ├── simulate_tournament_v2.py     # Tournament sim V2
-├── simulate_tournament_v3.py     # + JSA scheduling
+├── simulate_tournament_v3.py     # + JSA 2-segment scheduling
+├── simulate_tournament_v4.py     # + Multi-segment scheduling + banzuke prediction
+│
+├── torikumi_scheduler.py         # JSA-style matchup scheduling module
+├── banzuke_predictor.py          # Rank prediction module
 │
 ├── banzuke_detailed.csv          # Wrestler data
 ├── match_history_with_kimarite.csv  # Match history
@@ -233,8 +257,9 @@ Fantasy_Sumo/
 
 ### High Priority
 - [ ] **Injury/health tracking** - Add pre-tournament health indicators to predict kyujo risk
-- [ ] **In-tournament updates** - Day-by-day prediction updates using current record (currently not used for days 8-15)
-- [ ] **Better torikumi prediction** - Improve matchup scheduling algorithm accuracy
+- [x] **In-tournament updates** - Day-by-day prediction updates using current record (implemented in v4 scheduling)
+- [x] **Better torikumi prediction** - Multi-segment scheduling with 5 day groupings (torikumi_scheduler.py)
+- [x] **Banzuke prediction** - Predict future tournament rankings (banzuke_predictor.py)
 - [ ] **Ensemble approach** - Combine direct model + simulation predictions with learned weights
 
 ### Medium Priority
@@ -256,7 +281,7 @@ Fantasy_Sumo/
 - [ ] **Real-time data pipeline** - Automated scraping during tournaments
 
 ### Infrastructure
-- [ ] **Web interface** - Interactive dashboard for predictions
+- [ ] **Web interface** - Interactive dashboard for predictions (consider hosting on Render.com — free tier supports Flask, deploy via GitHub repo with `gunicorn`)
 - [ ] **API service** - Serve predictions via REST API
 - [ ] **Automated retraining** - Update models after each tournament
 

@@ -19,7 +19,20 @@ FEATURES = [
     'division_strength',
     'oshi_ratio',
     'avg_opponent_oshi_ratio',
-    'avg_h2h_win_pct'
+    'avg_h2h_win_pct',
+    # Injury risk features
+    'prev_absences',
+    'absences_last_3',
+    'completion_rate_last_3',
+    'age_x_prev_absences',
+    'basho_since_full',
+    # Elo features
+    'elo',
+    'elo_change_last_2_bouts',
+    'elo_change_last_5_bouts',
+    'elo_change_last_15_bouts',
+    'elo_change_last_1_basho',
+    'elo_change_last_2_basho',
 ]
 TARGET = 'w'
 
@@ -74,9 +87,9 @@ def train_and_save_model(file_path: str, model_output_path: str, tune_hyperparam
 
     print("Loading match history for style feature engineering...")
     try:
-        match_history_df = pd.read_csv("match_history_with_kimarite.csv")
+        match_history_df = pd.read_csv("data/match_history_with_kimarite.csv")
     except FileNotFoundError:
-        print("Warning: 'match_history_with_kimarite.csv' not found. Style features will not be used.")
+        print("Warning: 'data/match_history_with_kimarite.csv' not found. Style features will not be used.")
         match_history_df = None
 
     print(f"Original records loaded: {len(df_historical)}")
@@ -136,7 +149,12 @@ def train_and_save_model(file_path: str, model_output_path: str, tune_hyperparam
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
     validation_model = lgb.LGBMRegressor(**best_params)
-    validation_model.fit(X_train, y_train)
+    validation_model.fit(
+        X_train, y_train,
+        eval_set=[(X_train, y_train), (X_test, y_test)],
+        eval_names=['train', 'val'],
+        callbacks=[lgb.log_evaluation(period=100)],
+    )
     predictions = validation_model.predict(X_test)
 
     r2 = r2_score(y_test, predictions)
@@ -149,11 +167,15 @@ def train_and_save_model(file_path: str, model_output_path: str, tune_hyperparam
 
     print(f"\nTraining final model on all {len(X)} records with parameters: {best_params}")
     final_model = lgb.LGBMRegressor(**best_params)
-    final_model.fit(X, y)
+    final_model.fit(
+        X, y,
+        callbacks=[lgb.log_evaluation(period=100)],
+    )
 
     model_and_features = {
         'model': final_model,
-        'features': FEATURES
+        'features': FEATURES,
+        'mae': mae  # Save MAE for use in prediction/fantasy scoring
     }
     print(f"Saving trained model and feature list to '{model_output_path}'...")
     joblib.dump(model_and_features, model_output_path)
@@ -179,7 +201,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--data-file',
         type=str,
-        default="banzuke_detailed.csv",
+        default="data/banzuke_detailed.csv",
         help="Path to the historical data CSV file."
     )
     parser.add_argument(

@@ -391,6 +391,12 @@ def preprocess_data(df: pd.DataFrame, match_history_df: pd.DataFrame = None) -> 
         df = pd.merge(df, elo_features, on=['tournament_id', 'wrestler_id'], how='left')
         elo_cols = ['elo'] + [f'elo_change_last_{n}_bouts' for n in [2, 5, 15]] + \
                    [f'elo_change_last_{m}_basho' for m in [1, 2]]
+        # Forward-fill elo features within each wrestler so that tournaments with no
+        # matches in the history (upcoming basho, or a kyujo gap) inherit the wrestler's
+        # last known Elo state instead of resetting to the default 1500.
+        df = df.sort_values(['wrestler_id', 'tournament_id']).reset_index(drop=True)
+        for col in elo_cols:
+            df[col] = df.groupby('wrestler_id')[col].ffill()
         df['elo'] = df['elo'].fillna(1500.0)
         for col in elo_cols[1:]:
             df[col] = df[col].fillna(0.0)

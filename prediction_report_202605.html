@@ -1,0 +1,802 @@
+
+    <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Fantasy Sumo Report 202605</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f4f9; color: #333; padding: 20px; }
+        .container { max-width: 1200px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1, h2 { text-align: center; color: #444; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 13px; }
+        th, td { padding: 8px 10px; border: 1px solid #ddd; text-align: left; }
+        th { background-color: #333; color: #fff; cursor: pointer; user-select: none; position: sticky; top: 0; }
+        .filters { text-align: center; margin-bottom: 20px; }
+        .filters button { padding: 8px 15px; margin: 0 5px; border: 1px solid #ccc; background: #eee; cursor: pointer; border-radius: 4px; }
+        .filters button.active { background: #333; color: #fff; border-color: #333; }
+        .group-yo { background-color: #ffcccc; } .group-sk { background-color: #ffedcc; }
+        .group-m1-5 { background-color: #ffffcc; } .group-m6-10 { background-color: #ccffcc; }
+        .group-m11 { background-color: #ccffff; } .group-j { background-color: #e6ccff; }
+    </style>
+    <script>
+    function sortTable(n) {
+      var table, rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
+      table = document.getElementById("reportTable");
+      switching = true; dir = "asc"; 
+      while (switching) {
+        switching = false; rows = table.rows;
+        for (i = 1; i < (rows.length - 1); i++) {
+          shouldSwitch = false;
+          x = rows[i].getElementsByTagName("TD")[n];
+          y = rows[i + 1].getElementsByTagName("TD")[n];
+          var xContent = isNaN(parseFloat(x.innerText)) ? x.innerText.toLowerCase() : parseFloat(x.innerText);
+          var yContent = isNaN(parseFloat(y.innerText)) ? y.innerText.toLowerCase() : parseFloat(y.innerText);
+          if (dir == "asc") { if (xContent > yContent) { shouldSwitch = true; break; } } 
+          else if (dir == "desc") { if (xContent < yContent) { shouldSwitch = true; break; } }
+        }
+        if (shouldSwitch) {
+          rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+          switching = true; switchcount ++;      
+        } else { if (switchcount == 0 && dir == "asc") { dir = "desc"; switching = true; } }
+      }
+    }
+    function filterDivision(division) {
+        var table = document.getElementById("reportTable");
+        var tr = table.getElementsByTagName("tr");
+        for (var i = 1; i < tr.length; i++) {
+            if (division === 'all') tr[i].style.display = "";
+            else tr[i].style.display = tr[i].classList.contains('division-' + division) ? "" : "none";
+        }
+        document.querySelectorAll('.filters button').forEach(btn => btn.classList.remove('active'));
+        document.querySelector(`.filters button[onclick="filterDivision('`+division+`')"]`).classList.add('active');
+    }
+    window.onload = () => { document.querySelector('.filters button[onclick="filterDivision(\'all\')"]').classList.add('active'); };
+    </script>
+    </head>
+    <body><div class="container">
+        <h1>Fantasy Sumo Prediction Report</h1>
+        <h2>Basho: 202605</h2>
+        <div class="filters">
+            <button onclick="filterDivision('all')">All</button>
+            <button onclick="filterDivision('makuuchi')">Makuuchi</button>
+            <button onclick="filterDivision('juryo')">Juryo</button>
+        </div>
+        <table id="reportTable">
+            <thead>
+                <tr>
+                    <th onclick="sortTable(0)">Rikishi</th>
+                    <th onclick="sortTable(1)">Rank</th>
+                    <th onclick="sortTable(2)">Total Pts</th>
+                    <th onclick="sortTable(3)">Win Pts</th>
+                    <th onclick="sortTable(4)">KK/MK Pts</th>
+                    <th onclick="sortTable(5)">Yusho Pts</th>
+                    <th onclick="sortTable(6)">J-Yusho Pts</th>
+                    <th onclick="sortTable(7)">Kinboshi Pts</th>
+                    <th onclick="sortTable(8)">Actual Wins</th>
+                </tr>
+            </thead>
+            <tbody>
+        <tr class="division-makuuchi group-yo">
+            <td>Aonishiki</td>
+            <td>O1e</td>
+            <td><strong>16.24</strong></td>
+            <td>11.6</td>
+            <td>0.98</td>
+            <td>2.82</td>
+            <td>0.83</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-yo">
+            <td>Onosato</td>
+            <td>Y1w</td>
+            <td><strong>12.04</strong></td>
+            <td>9.7</td>
+            <td>0.84</td>
+            <td>0.88</td>
+            <td>0.63</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-yo">
+            <td>Hoshoryu</td>
+            <td>Y1e</td>
+            <td><strong>11.89</strong></td>
+            <td>9.7</td>
+            <td>0.84</td>
+            <td>0.73</td>
+            <td>0.63</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-sk">
+            <td>Atamifuji</td>
+            <td>S1w</td>
+            <td><strong>11.05</strong></td>
+            <td>9.3</td>
+            <td>0.76</td>
+            <td>0.51</td>
+            <td>0.48</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m1-5">
+            <td>Yoshinofuji</td>
+            <td>M1w</td>
+            <td><strong>10.97</strong></td>
+            <td>7.6</td>
+            <td>0.28</td>
+            <td>0.12</td>
+            <td>0.11</td>
+            <td>2.85</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m6-10">
+            <td>Oho</td>
+            <td>M6w</td>
+            <td><strong>9.41</strong></td>
+            <td>7.9</td>
+            <td>0.38</td>
+            <td>0.15</td>
+            <td>0.18</td>
+            <td>0.80</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-sk">
+            <td>Kirishima</td>
+            <td>S1e</td>
+            <td><strong>9.34</strong></td>
+            <td>8.3</td>
+            <td>0.51</td>
+            <td>0.27</td>
+            <td>0.26</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-yo">
+            <td>Kotozakura</td>
+            <td>O1w</td>
+            <td><strong>8.97</strong></td>
+            <td>8.1</td>
+            <td>0.45</td>
+            <td>0.19</td>
+            <td>0.23</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m6-10">
+            <td>Asanoyama</td>
+            <td>M9e</td>
+            <td><strong>8.94</strong></td>
+            <td>8.1</td>
+            <td>0.45</td>
+            <td>0.15</td>
+            <td>0.19</td>
+            <td>0.05</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m1-5">
+            <td>Takanosho</td>
+            <td>M4w</td>
+            <td><strong>8.75</strong></td>
+            <td>7.4</td>
+            <td>0.22</td>
+            <td>0.06</td>
+            <td>0.10</td>
+            <td>0.97</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m6-10">
+            <td>Hakunofuji</td>
+            <td>M10e</td>
+            <td><strong>8.64</strong></td>
+            <td>7.7</td>
+            <td>0.32</td>
+            <td>0.10</td>
+            <td>0.13</td>
+            <td>0.40</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m11">
+            <td>Wakanosho</td>
+            <td>M13e</td>
+            <td><strong>8.63</strong></td>
+            <td>7.9</td>
+            <td>0.38</td>
+            <td>0.15</td>
+            <td>0.15</td>
+            <td>0.05</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Kinbozan</td>
+            <td>J4e</td>
+            <td><strong>8.41</strong></td>
+            <td>8.0</td>
+            <td>0.41</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Toshinofuji</td>
+            <td>J14e</td>
+            <td><strong>8.28</strong></td>
+            <td>7.9</td>
+            <td>0.38</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-sk">
+            <td>Fujinokawa</td>
+            <td>K1w</td>
+            <td><strong>8.22</strong></td>
+            <td>7.7</td>
+            <td>0.32</td>
+            <td>0.09</td>
+            <td>0.12</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m6-10">
+            <td>Oshoumi</td>
+            <td>M6e</td>
+            <td><strong>8.17</strong></td>
+            <td>7.6</td>
+            <td>0.28</td>
+            <td>0.07</td>
+            <td>0.12</td>
+            <td>0.10</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Nishinoryu</td>
+            <td>J4w</td>
+            <td><strong>8.02</strong></td>
+            <td>7.7</td>
+            <td>0.32</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m6-10">
+            <td>Ichiyamamoto</td>
+            <td>M9w</td>
+            <td><strong>8.00</strong></td>
+            <td>7.0</td>
+            <td>0.09</td>
+            <td>0.05</td>
+            <td>0.06</td>
+            <td>0.80</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m11">
+            <td>Roga</td>
+            <td>M11e</td>
+            <td><strong>7.88</strong></td>
+            <td>7.1</td>
+            <td>0.12</td>
+            <td>0.07</td>
+            <td>0.07</td>
+            <td>0.53</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Kitanowaka</td>
+            <td>J10e</td>
+            <td><strong>7.88</strong></td>
+            <td>7.6</td>
+            <td>0.28</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Daiseizan</td>
+            <td>J6w</td>
+            <td><strong>7.88</strong></td>
+            <td>7.6</td>
+            <td>0.28</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m11">
+            <td>Asasuiryu</td>
+            <td>M14w</td>
+            <td><strong>7.85</strong></td>
+            <td>7.4</td>
+            <td>0.22</td>
+            <td>0.09</td>
+            <td>0.13</td>
+            <td>0.02</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m6-10">
+            <td>Gonoyama</td>
+            <td>M10w</td>
+            <td><strong>7.79</strong></td>
+            <td>7.3</td>
+            <td>0.18</td>
+            <td>0.04</td>
+            <td>0.09</td>
+            <td>0.17</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m11">
+            <td>Tobizaru</td>
+            <td>M12w</td>
+            <td><strong>7.77</strong></td>
+            <td>7.2</td>
+            <td>0.15</td>
+            <td>0.05</td>
+            <td>0.09</td>
+            <td>0.28</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Dewanoryu</td>
+            <td>J9w</td>
+            <td><strong>7.75</strong></td>
+            <td>7.5</td>
+            <td>0.25</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Shirokuma</td>
+            <td>J9e</td>
+            <td><strong>7.75</strong></td>
+            <td>7.5</td>
+            <td>0.25</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Fujitensei</td>
+            <td>J14w</td>
+            <td><strong>7.75</strong></td>
+            <td>7.5</td>
+            <td>0.25</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Midorifuji</td>
+            <td>J1e</td>
+            <td><strong>7.75</strong></td>
+            <td>7.5</td>
+            <td>0.25</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Shonannoumi</td>
+            <td>J11w</td>
+            <td><strong>7.75</strong></td>
+            <td>7.5</td>
+            <td>0.25</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m6-10">
+            <td>Shodai</td>
+            <td>M8e</td>
+            <td><strong>7.71</strong></td>
+            <td>7.1</td>
+            <td>0.12</td>
+            <td>0.08</td>
+            <td>0.06</td>
+            <td>0.35</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m1-5">
+            <td>Abi</td>
+            <td>M2w</td>
+            <td><strong>7.68</strong></td>
+            <td>6.3</td>
+            <td>-0.12</td>
+            <td>0.03</td>
+            <td>0.02</td>
+            <td>1.45</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m11">
+            <td>Tamawashi</td>
+            <td>M12e</td>
+            <td><strong>7.62</strong></td>
+            <td>7.2</td>
+            <td>0.15</td>
+            <td>0.03</td>
+            <td>0.07</td>
+            <td>0.18</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m11">
+            <td>Kotoeiho</td>
+            <td>M16w</td>
+            <td><strong>7.62</strong></td>
+            <td>7.3</td>
+            <td>0.18</td>
+            <td>0.02</td>
+            <td>0.10</td>
+            <td>0.02</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Takerufuji</td>
+            <td>J5w</td>
+            <td><strong>7.62</strong></td>
+            <td>7.4</td>
+            <td>0.22</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Kyokukaiyu</td>
+            <td>J6e</td>
+            <td><strong>7.62</strong></td>
+            <td>7.4</td>
+            <td>0.22</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Meisei</td>
+            <td>J8e</td>
+            <td><strong>7.62</strong></td>
+            <td>7.4</td>
+            <td>0.22</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m1-5">
+            <td>Daieisho</td>
+            <td>M3w</td>
+            <td><strong>7.52</strong></td>
+            <td>6.8</td>
+            <td>0.02</td>
+            <td>0.04</td>
+            <td>0.05</td>
+            <td>0.60</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Kagayaki</td>
+            <td>J8w</td>
+            <td><strong>7.48</strong></td>
+            <td>7.3</td>
+            <td>0.18</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m11">
+            <td>Asahakuryu</td>
+            <td>M13w</td>
+            <td><strong>7.43</strong></td>
+            <td>7.1</td>
+            <td>0.12</td>
+            <td>0.07</td>
+            <td>0.10</td>
+            <td>0.05</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m6-10">
+            <td>Shishi</td>
+            <td>M7w</td>
+            <td><strong>7.41</strong></td>
+            <td>7.1</td>
+            <td>0.12</td>
+            <td>0.07</td>
+            <td>0.07</td>
+            <td>0.05</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m11">
+            <td>Fujiryoga</td>
+            <td>M14e</td>
+            <td><strong>7.40</strong></td>
+            <td>7.1</td>
+            <td>0.12</td>
+            <td>0.08</td>
+            <td>0.08</td>
+            <td>0.02</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m11">
+            <td>Ura</td>
+            <td>M11w</td>
+            <td><strong>7.39</strong></td>
+            <td>7.0</td>
+            <td>0.09</td>
+            <td>0.06</td>
+            <td>0.07</td>
+            <td>0.18</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-sk">
+            <td>Wakatakakage</td>
+            <td>K1e</td>
+            <td><strong>7.34</strong></td>
+            <td>7.1</td>
+            <td>0.12</td>
+            <td>0.02</td>
+            <td>0.10</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m1-5">
+            <td>Kotoshoho</td>
+            <td>M3e</td>
+            <td><strong>7.26</strong></td>
+            <td>5.9</td>
+            <td>-0.22</td>
+            <td>0.00</td>
+            <td>0.02</td>
+            <td>1.55</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m11">
+            <td>Mitakeumi</td>
+            <td>M16e</td>
+            <td><strong>7.23</strong></td>
+            <td>6.9</td>
+            <td>0.05</td>
+            <td>0.05</td>
+            <td>0.06</td>
+            <td>0.17</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Hitoshi</td>
+            <td>J7e</td>
+            <td><strong>7.22</strong></td>
+            <td>7.1</td>
+            <td>0.12</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m6-10">
+            <td>Asakoryu</td>
+            <td>M8w</td>
+            <td><strong>7.18</strong></td>
+            <td>6.6</td>
+            <td>-0.04</td>
+            <td>0.03</td>
+            <td>0.04</td>
+            <td>0.55</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Tohakuryu</td>
+            <td>J11e</td>
+            <td><strong>7.09</strong></td>
+            <td>7.0</td>
+            <td>0.09</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Ryuden</td>
+            <td>J5e</td>
+            <td><strong>7.09</strong></td>
+            <td>7.0</td>
+            <td>0.09</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Shimazuumi</td>
+            <td>J13w</td>
+            <td><strong>7.09</strong></td>
+            <td>7.0</td>
+            <td>0.09</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Kayo</td>
+            <td>J7w</td>
+            <td><strong>7.09</strong></td>
+            <td>7.0</td>
+            <td>0.09</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m6-10">
+            <td>Fujiseiun</td>
+            <td>M7e</td>
+            <td><strong>7.04</strong></td>
+            <td>6.8</td>
+            <td>0.02</td>
+            <td>0.04</td>
+            <td>0.07</td>
+            <td>0.10</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m11">
+            <td>Chiyoshoma</td>
+            <td>M15e</td>
+            <td><strong>7.03</strong></td>
+            <td>6.8</td>
+            <td>0.02</td>
+            <td>0.03</td>
+            <td>0.07</td>
+            <td>0.11</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m1-5">
+            <td>Hiradoumi</td>
+            <td>M2e</td>
+            <td><strong>7.02</strong></td>
+            <td>6.4</td>
+            <td>-0.10</td>
+            <td>0.03</td>
+            <td>0.04</td>
+            <td>0.65</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m1-5">
+            <td>Oshoma</td>
+            <td>M5e</td>
+            <td><strong>7.02</strong></td>
+            <td>6.9</td>
+            <td>0.05</td>
+            <td>0.02</td>
+            <td>0.05</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m1-5">
+            <td>Tokihayate</td>
+            <td>M5w</td>
+            <td><strong>6.99</strong></td>
+            <td>6.4</td>
+            <td>-0.10</td>
+            <td>0.03</td>
+            <td>0.04</td>
+            <td>0.61</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Kazuma</td>
+            <td>J10w</td>
+            <td><strong>6.95</strong></td>
+            <td>6.9</td>
+            <td>0.05</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Tamashoho</td>
+            <td>J12e</td>
+            <td><strong>6.95</strong></td>
+            <td>6.9</td>
+            <td>0.05</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-sk">
+            <td>Wakamotoharu</td>
+            <td>K2e</td>
+            <td><strong>6.93</strong></td>
+            <td>6.8</td>
+            <td>0.02</td>
+            <td>0.04</td>
+            <td>0.06</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-sk">
+            <td>Takayasu</td>
+            <td>S2e</td>
+            <td><strong>6.91</strong></td>
+            <td>6.8</td>
+            <td>0.02</td>
+            <td>0.03</td>
+            <td>0.06</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Sadanoumi</td>
+            <td>J3e</td>
+            <td><strong>6.82</strong></td>
+            <td>6.8</td>
+            <td>0.02</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m11">
+            <td>Nishikifuji</td>
+            <td>M15w</td>
+            <td><strong>6.74</strong></td>
+            <td>6.7</td>
+            <td>-0.01</td>
+            <td>0.01</td>
+            <td>0.03</td>
+            <td>0.01</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m1-5">
+            <td>Onokatsu</td>
+            <td>M4e</td>
+            <td><strong>6.46</strong></td>
+            <td>6.4</td>
+            <td>-0.10</td>
+            <td>0.04</td>
+            <td>0.04</td>
+            <td>0.08</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Tsurugisho</td>
+            <td>J13e</td>
+            <td><strong>5.93</strong></td>
+            <td>6.1</td>
+            <td>-0.17</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-makuuchi group-m1-5">
+            <td>Churanoumi</td>
+            <td>M1e</td>
+            <td><strong>5.82</strong></td>
+            <td>6.0</td>
+            <td>-0.20</td>
+            <td>0.01</td>
+            <td>0.01</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr>
+        <tr class="division-juryo group-j">
+            <td>Nishikigi</td>
+            <td>J12w</td>
+            <td><strong>5.08</strong></td>
+            <td>5.4</td>
+            <td>-0.32</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>0.00</td>
+            <td>-</td>
+        </tr></tbody>
+        </table>
+    </div></body></html>

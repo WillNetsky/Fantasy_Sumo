@@ -23,11 +23,13 @@ from flask import Flask, redirect, render_template_string, request, url_for
 
 from scrape_torikumi import scrape_day, DIVISION_ORDER
 from simulate_tournament_v4 import (
-    build_match_features,
+    build_match_features_v9 as build_match_features,
     compute_h2h,
+    compute_h2h_recent,
     get_h2h_stats,
-    predict_match_v8,
-    prepare_wrestlers_v8 as prepare_wrestlers,
+    get_h2h_recent_stats,
+    predict_match_v9 as predict_match_v8,
+    prepare_wrestlers_v9 as prepare_wrestlers,
 )
 from sumo_utils import get_absolute_rank_score
 
@@ -39,6 +41,7 @@ MODEL_BUNDLE = None
 WRESTLER_DICT = None   # {wrestler_id: feature_dict}
 NAME_TO_ID = None      # {lowercase_name: wrestler_id} for JSA name→SumoDB ID matching
 H2H = None
+H2H_RECENT = None      # {(w1,w2): recent win dict} for v9
 EXPLAINER = None       # SHAP TreeExplainer
 DAY_CACHE = {}         # {(basho_id, day): list_of_bouts} for summary page
 WRESTLER_FLAG = {}     # {wrestler_id: flag_emoji or ''} - filled async at startup
@@ -258,8 +261,8 @@ def _flag_for_name(name: str) -> str:
 app.jinja_env.globals['flag_for'] = _flag_for_name
 
 
-def load_resources(basho_id: int, model_file: str = 'matchup_model_v8.joblib'):
-    global MODEL_BUNDLE, WRESTLER_DICT, NAME_TO_ID, H2H, BASHO_ID, EXPLAINER, KIMARITE_PROBS
+def load_resources(basho_id: int, model_file: str = 'matchup_model_v9.joblib'):
+    global MODEL_BUNDLE, WRESTLER_DICT, NAME_TO_ID, H2H, H2H_RECENT, BASHO_ID, EXPLAINER, KIMARITE_PROBS
     BASHO_ID = basho_id
     print(f"Loading model and data for basho {basho_id}...")
 
@@ -274,6 +277,7 @@ def load_resources(basho_id: int, model_file: str = 'matchup_model_v8.joblib'):
     wrestlers_df = prepare_wrestlers(banzuke, match_history, basho_id, all_divisions=True)
     WRESTLER_DICT = wrestlers_df.set_index('wrestler_id').to_dict('index')
     H2H = compute_h2h(match_history, basho_id)
+    H2H_RECENT = compute_h2h_recent(match_history, basho_id)
 
     # Build name→SumoDB ID lookup (JSA uses English shikonas, SumoDB uses 'rikishi' column)
     NAME_TO_ID = {}
@@ -350,6 +354,7 @@ def get_prediction(east_name, west_name,
         b['win_pct_last_3'] = _blend_win_pct(b['win_pct_last_3'], west_wins, west_losses)
 
     h2h_pct, h2h_tot = get_h2h_stats(H2H, east_id, west_id)
+    h2h_recent_pct, h2h_recent_tot = get_h2h_recent_stats(H2H_RECENT, east_id, west_id)
     _wa = east_wins or 0
     _la = east_losses or 0
     _wb = west_wins or 0
@@ -360,12 +365,14 @@ def get_prediction(east_name, west_name,
         a, b,
         h2h_pct, h2h_tot,
         wins_a=_wa, losses_a=_la, wins_b=_wb, losses_b=_lb,
+        h2h_recent_pct_a=h2h_recent_pct, h2h_recent_total=h2h_recent_tot,
     )
 
     # SHAP feature importance for this specific bout
     try:
         f = build_match_features(a, b, h2h_pct, h2h_tot,
-                                 wins_a=_wa, losses_a=_la, wins_b=_wb, losses_b=_lb)
+                                 wins_a=_wa, losses_a=_la, wins_b=_wb, losses_b=_lb,
+                                 h2h_recent_pct_a=h2h_recent_pct, h2h_recent_total=h2h_recent_tot)
 
         import warnings
         X = pd.DataFrame([f])[MODEL_BUNDLE['features']]
@@ -433,6 +440,7 @@ def _predict_prob_only(east_name, west_name,
         b['win_pct_last_3'] = _blend_win_pct(b['win_pct_last_3'], west_wins, west_losses)
 
     h2h_pct, h2h_tot = get_h2h_stats(H2H, east_id, west_id)
+    h2h_recent_pct, h2h_recent_tot = get_h2h_recent_stats(H2H_RECENT, east_id, west_id)
     prob = predict_match_v8(
         MODEL_BUNDLE['model'],
         MODEL_BUNDLE['features'],
@@ -440,6 +448,7 @@ def _predict_prob_only(east_name, west_name,
         h2h_pct, h2h_tot,
         wins_a=east_wins or 0, losses_a=east_losses or 0,
         wins_b=west_wins or 0, losses_b=west_losses or 0,
+        h2h_recent_pct_a=h2h_recent_pct, h2h_recent_total=h2h_recent_tot,
     )
 
     east_rank = WRESTLER_DICT[east_id].get('rank')
@@ -1348,6 +1357,7 @@ document.querySelectorAll('.bout.has-shap').forEach(function(row) {
   row.addEventListener('click', function() { this.classList.toggle('open'); });
 });
 
+{% if flip %}
 (function() {
   var allBouts = Array.from(document.querySelectorAll('.bout'));
   var lastCompletedIdx = -1;
@@ -1368,6 +1378,7 @@ document.querySelectorAll('.bout.has-shap').forEach(function(row) {
     scrollTarget.scrollIntoView({ block: 'center' });
   }
 })();
+{% endif %}
 
 // Collapsible divisions
 (function() {
@@ -1599,8 +1610,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--basho', type=int, default=202603)
     parser.add_argument('--port',  type=int, default=5000)
-    parser.add_argument('--model', default='matchup_model_v8.joblib',
-                        help='Model file to load (default: matchup_model_v8.joblib)')
+    parser.add_argument('--model', default='matchup_model_v9.joblib',
+                        help='Model file to load (default: matchup_model_v9.joblib)')
     args = parser.parse_args()
 
     load_resources(args.basho, args.model)

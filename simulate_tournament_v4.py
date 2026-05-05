@@ -983,3 +983,148 @@ def predict_match_v8(model, features: List[str], a: dict, b: dict,
                              wins_a, losses_a, wins_b, losses_b, day)
     X = pd.DataFrame([f])[features]
     return model.predict_proba(X)[0][1]
+
+
+# ---------------------------------------------------------------------------
+# V9 feature functions — adds injury, streak, recent H2H, rank volatility
+# ---------------------------------------------------------------------------
+
+def compute_h2h_recent(match_history: pd.DataFrame, tournament_id: int, n: int = 10) -> Dict:
+    """Get recent H2H records (last N meetings before tournament_id)."""
+    hist = match_history[match_history['tournament_id'] < tournament_id].copy()
+    hist = hist.sort_values(['tournament_id', 'day'])
+    h2h: Dict = {}
+    for _, m in hist.iterrows():
+        w1 = min(m['winner_id'], m['loser_id'])
+        w2 = max(m['winner_id'], m['loser_id'])
+        key = (w1, w2)
+        h2h.setdefault(key, []).append(1 if m['winner_id'] == w1 else 0)
+    return {k: {'w1': sum(v[-n:]), 'total': len(v[-n:])} for k, v in h2h.items()}
+
+
+def get_h2h_recent_stats(h2h_recent: Dict, a_id: int, b_id: int) -> Tuple[float, int]:
+    """Get A's recent win % vs B and recent match count."""
+    w1 = min(a_id, b_id)
+    key = (w1, max(a_id, b_id))
+    if key not in h2h_recent:
+        return 0.5, 0
+    rec = h2h_recent[key]
+    total = rec['total']
+    if total == 0:
+        return 0.5, 0
+    w1_pct = rec['w1'] / total
+    return (w1_pct if a_id == w1 else 1 - w1_pct), total
+
+
+def prepare_wrestlers_v9(banzuke: pd.DataFrame, match_history: pd.DataFrame,
+                          tournament_id: int, all_divisions: bool = False) -> pd.DataFrame:
+    """Prepare wrestler features for v9 model (extends v8 with injury + rank volatility)."""
+    df = prepare_wrestlers_v8(banzuke, match_history, tournament_id, all_divisions)
+    if df.empty:
+        return df
+
+    roster = banzuke[banzuke['tournament_id'] == tournament_id].copy()
+    hist_banzuke = banzuke[banzuke['tournament_id'] < tournament_id]
+
+    def _count_abs(s):
+        return s.count('-') if isinstance(s, str) else 0
+
+    def _count_sched(s):
+        return len([c for c in str(s) if c in 'OoSsXx*-#']) if isinstance(s, str) else 15
+
+    injury_rows = []
+    for w_id in df['wrestler_id']:
+        w_hist = hist_banzuke[hist_banzuke['wrestler_id'] == w_id]
+        if not w_hist.empty and 'hoshitori' in w_hist.columns:
+            abs_series = w_hist['hoshitori'].apply(_count_abs)
+            sched_series = w_hist['hoshitori'].apply(_count_sched)
+            comp_series = (sched_series - abs_series) / sched_series.replace(0, 1)
+            prev_abs = float(abs_series.iloc[-1]) if len(abs_series) else 0
+            was_kyujo = int(prev_abs > 0)
+            absences_last_3 = float(abs_series.tail(3).sum())
+            completion_rate_last_3 = float(comp_series.tail(3).mean())
+
+            # Rank volatility: std of rank score changes over last 6 basho
+            rank_scores = w_hist['rank'].apply(get_absolute_rank_score).dropna().values
+            if len(rank_scores) >= 3:
+                deltas = [rank_scores[i] - rank_scores[i-1] for i in range(1, len(rank_scores))]
+                rank_volatility = float(np.std(deltas[-6:]))
+            else:
+                rank_volatility = 0.0
+        else:
+            was_kyujo = 0
+            absences_last_3 = 0.0
+            completion_rate_last_3 = 1.0
+            rank_volatility = 0.0
+
+        injury_rows.append({
+            'wrestler_id': w_id,
+            'was_kyujo_last_basho': was_kyujo,
+            'absences_last_3': absences_last_3,
+            'completion_rate_last_3': completion_rate_last_3,
+            'rank_volatility': rank_volatility,
+        })
+
+    injury_df = pd.DataFrame(injury_rows)
+    df = df.merge(injury_df, on='wrestler_id', how='left')
+    df['was_kyujo_last_basho'] = df['was_kyujo_last_basho'].fillna(0)
+    df['absences_last_3'] = df['absences_last_3'].fillna(0)
+    df['completion_rate_last_3'] = df['completion_rate_last_3'].fillna(1.0)
+    df['rank_volatility'] = df['rank_volatility'].fillna(0.0)
+    return df
+
+
+def build_match_features_v9(a: dict, b: dict, h2h_pct_a: float, h2h_total: int,
+                              wins_a: int = 0, losses_a: int = 0,
+                              wins_b: int = 0, losses_b: int = 0,
+                              day: int = 1,
+                              streak_a: int = 0, streak_b: int = 0,
+                              h2h_recent_pct_a: float = 0.5,
+                              h2h_recent_total: int = 0) -> dict:
+    """Build full v9 feature dict (extends v8 with streak, recent H2H, injury, rank volatility)."""
+    f = build_match_features(a, b, h2h_pct_a, h2h_total,
+                             wins_a, losses_a, wins_b, losses_b, day)
+
+    # In-tournament streak
+    f['current_streak_A'] = streak_a
+    f['current_streak_B'] = streak_b
+    f['current_streak_diff'] = streak_a - streak_b
+
+    # Recent H2H
+    f['h2h_recent_win_pct_A'] = h2h_recent_pct_a
+    f['has_recent_h2h'] = 1 if h2h_recent_total >= 3 else 0
+
+    # Injury/kyujo
+    f['was_kyujo_last_basho_A'] = a.get('was_kyujo_last_basho', 0)
+    f['was_kyujo_last_basho_B'] = b.get('was_kyujo_last_basho', 0)
+    f['was_kyujo_diff'] = f['was_kyujo_last_basho_A'] - f['was_kyujo_last_basho_B']
+    f['absences_last_3_A'] = a.get('absences_last_3', 0.0)
+    f['absences_last_3_B'] = b.get('absences_last_3', 0.0)
+    f['absences_last_3_diff'] = f['absences_last_3_A'] - f['absences_last_3_B']
+    f['completion_rate_last_3_A'] = a.get('completion_rate_last_3', 1.0)
+    f['completion_rate_last_3_B'] = b.get('completion_rate_last_3', 1.0)
+    f['completion_rate_diff'] = f['completion_rate_last_3_A'] - f['completion_rate_last_3_B']
+
+    # Rank volatility
+    f['rank_volatility_A'] = a.get('rank_volatility', 0.0)
+    f['rank_volatility_B'] = b.get('rank_volatility', 0.0)
+    f['rank_volatility_diff'] = f['rank_volatility_A'] - f['rank_volatility_B']
+
+    return f
+
+
+def predict_match_v9(model, features: List[str], a: dict, b: dict,
+                     h2h_pct_a: float, h2h_total: int,
+                     wins_a: int = 0, losses_a: int = 0,
+                     wins_b: int = 0, losses_b: int = 0,
+                     day: int = 1,
+                     streak_a: int = 0, streak_b: int = 0,
+                     h2h_recent_pct_a: float = 0.5,
+                     h2h_recent_total: int = 0) -> float:
+    """Predict P(A wins) using the v9 model feature set."""
+    f = build_match_features_v9(a, b, h2h_pct_a, h2h_total,
+                                 wins_a, losses_a, wins_b, losses_b, day,
+                                 streak_a, streak_b,
+                                 h2h_recent_pct_a, h2h_recent_total)
+    X = pd.DataFrame([f])[features]
+    return model.predict_proba(X)[0][1]

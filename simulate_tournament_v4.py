@@ -593,6 +593,129 @@ def generate_simple_torikumi(wrestlers_df: pd.DataFrame, day: int,
     return matchups
 
 
+def _draft_category(rank: str) -> str:
+    division, number, _ = _parse_rank(rank)
+    if not division:
+        return "Other"
+    if division in ('Y', 'O'):
+        return "Yokozuna/Ozeki"
+    if division in ('S', 'K'):
+        return "Sekiwake/Komusubi"
+    if division == 'M':
+        if 1 <= number <= 5:
+            return "Maegashira 1-5"
+        if 6 <= number <= 10:
+            return "Maegashira 6-10"
+        return "Maegashira 11+"
+    if division == 'J':
+        return "Juryo"
+    return "Other"
+
+
+def generate_html_report(results: pd.DataFrame, tournament_id: int,
+                          model_version: int, n_sims: int, scheduling: str) -> str:
+    """Render simulator results as a styled, sortable HTML table."""
+    df = results.copy().sort_values('expected_wins', ascending=False)
+
+    group_class_map = {
+        "Yokozuna/Ozeki": "group-yo",
+        "Sekiwake/Komusubi": "group-sk",
+        "Maegashira 1-5": "group-m1-5",
+        "Maegashira 6-10": "group-m6-10",
+        "Maegashira 11+": "group-m11",
+        "Juryo": "group-j",
+    }
+
+    rows_html = []
+    for _, row in df.iterrows():
+        cat = _draft_category(row['rank'])
+        group_cls = group_class_map.get(cat, "")
+        div_cls = f"division-{row['division']}"
+        rows_html.append(
+            f"<tr class='{div_cls} {group_cls}'>"
+            f"<td>{row['rikishi']}</td>"
+            f"<td>{row['rank']}</td>"
+            f"<td><strong>{row['expected_wins']:.2f}</strong></td>"
+            f"<td>{row['kachi_koshi_prob'] * 100:.1f}%</td>"
+            f"<td>{row['yusho_prob'] * 100:.2f}%</td>"
+            f"<td>{row['jun_yusho_prob'] * 100:.2f}%</td>"
+            f"</tr>"
+        )
+    table_rows = "\n".join(rows_html)
+
+    html = f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<title>Sumo Simulation v{model_version} — {tournament_id}</title>
+<style>
+body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f4f9; color: #333; padding: 20px; }}
+.container {{ max-width: 1200px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+h1, h2, .meta {{ text-align: center; color: #444; }}
+.meta {{ color: #777; margin-top: -8px; font-size: 14px; }}
+table {{ width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 13px; }}
+th, td {{ padding: 8px 10px; border: 1px solid #ddd; text-align: left; }}
+th {{ background-color: #333; color: #fff; cursor: pointer; user-select: none; position: sticky; top: 0; }}
+.filters {{ text-align: center; margin-bottom: 20px; }}
+.filters button {{ padding: 8px 15px; margin: 0 5px; border: 1px solid #ccc; background: #eee; cursor: pointer; border-radius: 4px; }}
+.filters button.active {{ background: #333; color: #fff; border-color: #333; }}
+.group-yo {{ background-color: #ffcccc; }} .group-sk {{ background-color: #ffedcc; }}
+.group-m1-5 {{ background-color: #ffffcc; }} .group-m6-10 {{ background-color: #ccffcc; }}
+.group-m11 {{ background-color: #ccffff; }} .group-j {{ background-color: #e6ccff; }}
+</style>
+<script>
+function sortTable(n) {{
+  var table = document.getElementById("reportTable");
+  var rows, switching = true, i, x, y, shouldSwitch, dir = "asc", switchcount = 0;
+  while (switching) {{
+    switching = false; rows = table.rows;
+    for (i = 1; i < rows.length - 1; i++) {{
+      shouldSwitch = false;
+      x = rows[i].getElementsByTagName("TD")[n];
+      y = rows[i + 1].getElementsByTagName("TD")[n];
+      var xc = isNaN(parseFloat(x.innerText)) ? x.innerText.toLowerCase() : parseFloat(x.innerText);
+      var yc = isNaN(parseFloat(y.innerText)) ? y.innerText.toLowerCase() : parseFloat(y.innerText);
+      if (dir === "asc" ? xc > yc : xc < yc) {{ shouldSwitch = true; break; }}
+    }}
+    if (shouldSwitch) {{ rows[i].parentNode.insertBefore(rows[i + 1], rows[i]); switching = true; switchcount++; }}
+    else if (switchcount === 0 && dir === "asc") {{ dir = "desc"; switching = true; }}
+  }}
+}}
+function filterDivision(division) {{
+  var rows = document.getElementById("reportTable").getElementsByTagName("tr");
+  for (var i = 1; i < rows.length; i++) {{
+    rows[i].style.display = (division === 'all' || rows[i].classList.contains('division-' + division)) ? "" : "none";
+  }}
+  document.querySelectorAll('.filters button').forEach(b => b.classList.remove('active'));
+  document.querySelector(".filters button[data-div='" + division + "']").classList.add('active');
+}}
+window.onload = () => {{ document.querySelector(".filters button[data-div='all']").classList.add('active'); }};
+</script>
+</head><body><div class="container">
+<h1>Sumo Tournament Simulation — Matchup Model v{model_version}</h1>
+<h2>Basho: {tournament_id}</h2>
+<div class="meta">{n_sims} Monte Carlo simulations · {scheduling} scheduling</div>
+<div class="filters">
+  <button data-div="all" onclick="filterDivision('all')">All</button>
+  <button data-div="makuuchi" onclick="filterDivision('makuuchi')">Makuuchi</button>
+  <button data-div="juryo" onclick="filterDivision('juryo')">Juryo</button>
+</div>
+<table id="reportTable">
+<thead><tr>
+  <th onclick="sortTable(0)">Rikishi</th>
+  <th onclick="sortTable(1)">Rank</th>
+  <th onclick="sortTable(2)">Expected Wins</th>
+  <th onclick="sortTable(3)">Kachi-koshi %</th>
+  <th onclick="sortTable(4)">Yusho %</th>
+  <th onclick="sortTable(5)">Jun-yusho %</th>
+</tr></thead>
+<tbody>{table_rows}</tbody>
+</table>
+</div></body></html>"""
+
+    out_path = f"simulation_report_{tournament_id}.html"
+    with open(out_path, 'w', encoding='utf-8') as f:
+        f.write(html)
+    return out_path
+
+
 def main(model_path: str, banzuke_path: str, match_path: str,
          tournament_id: int, n_sims: int, scheduling: str = 'jsa_v2',
          predict_banzuke: bool = False, chain_tournaments: int = 0):
@@ -657,6 +780,9 @@ def main(model_path: str, banzuke_path: str, match_path: str,
     output_file = f"outputs/simulation_v4_{tournament_id}.csv"
     results.to_csv(output_file, index=False)
     print(f"\nSaved to {output_file}")
+
+    html_path = generate_html_report(results, tournament_id, model_version, n_sims, scheduling)
+    print(f"Generated HTML report: '{html_path}'")
 
     # Predict next banzuke if requested
     if predict_banzuke:

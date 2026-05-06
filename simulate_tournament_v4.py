@@ -390,15 +390,15 @@ def simulate_tournament(model_bundle: dict, wrestlers_df: pd.DataFrame,
                 # Simple matching
                 matchups = generate_simple_torikumi(wrestlers_df, day, records, faced, w_dict)
 
+            # Batch all of today's bouts into a single predict_proba call.
+            feat_rows = []
             for a_id, b_id in matchups:
                 h2h_pct, h2h_tot = get_h2h_stats(h2h, a_id, b_id)
-
                 if model_version >= 9:
                     h2h_rp, h2h_rt = (get_h2h_recent_stats(h2h_recent, a_id, b_id)
                                       if h2h_recent is not None else (0.5, 0))
-                    prob = predict_match_v9(
-                        model, features, w_dict[a_id], w_dict[b_id],
-                        h2h_pct, h2h_tot,
+                    f = build_match_features_v9(
+                        w_dict[a_id], w_dict[b_id], h2h_pct, h2h_tot,
                         wins_a=records[a_id][0], losses_a=records[a_id][1],
                         wins_b=records[b_id][0], losses_b=records[b_id][1],
                         day=day,
@@ -406,9 +406,8 @@ def simulate_tournament(model_bundle: dict, wrestlers_df: pd.DataFrame,
                         h2h_recent_pct_a=h2h_rp, h2h_recent_total=h2h_rt,
                     )
                 elif model_version >= 8:
-                    prob = predict_match_v8(
-                        model, features, w_dict[a_id], w_dict[b_id],
-                        h2h_pct, h2h_tot,
+                    f = build_match_features(
+                        w_dict[a_id], w_dict[b_id], h2h_pct, h2h_tot,
                         wins_a=records[a_id][0], losses_a=records[a_id][1],
                         wins_b=records[b_id][0], losses_b=records[b_id][1],
                         day=day,
@@ -419,11 +418,20 @@ def simulate_tournament(model_bundle: dict, wrestlers_df: pd.DataFrame,
                         h2h_pct, h2h_tot,
                         records[a_id][0], records[a_id][1],
                         records[b_id][0], records[b_id][1],
-                        day
+                        day,
                     )
-                    prob = predict_match(model, features, f)
+                feat_rows.append(f)
 
-                if np.random.random() < prob:
+            if feat_rows:
+                X_day = pd.DataFrame(feat_rows)[features]
+                probs = model.predict_proba(X_day)[:, 1]
+                rolls = np.random.random(len(probs))
+            else:
+                probs = np.array([])
+                rolls = np.array([])
+
+            for (a_id, b_id), prob, roll in zip(matchups, probs, rolls):
+                if roll < prob:
                     winner, loser = a_id, b_id
                 else:
                     winner, loser = b_id, a_id

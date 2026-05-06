@@ -335,7 +335,8 @@ def predict_match(model, features: List[str], f: dict) -> float:
 def simulate_tournament(model_bundle: dict, wrestlers_df: pd.DataFrame,
                         h2h: Dict, n_sims: int = 500,
                         scheduling: str = 'jsa_v2',
-                        verbose: bool = True) -> pd.DataFrame:
+                        verbose: bool = True,
+                        h2h_recent: Dict = None) -> pd.DataFrame:
     """
     Run tournament simulation with improved multi-segment scheduling.
 
@@ -376,6 +377,7 @@ def simulate_tournament(model_bundle: dict, wrestlers_df: pd.DataFrame,
 
         records = {w: (0, 0) for w in w_ids}
         faced = {w: set() for w in w_ids}
+        streaks = {w: 0 for w in w_ids}  # signed streak: +N wins / -N losses
 
         for day in range(1, 16):
             if scheduling == 'jsa_v2':
@@ -391,26 +393,48 @@ def simulate_tournament(model_bundle: dict, wrestlers_df: pd.DataFrame,
             for a_id, b_id in matchups:
                 h2h_pct, h2h_tot = get_h2h_stats(h2h, a_id, b_id)
 
-                f = build_matchup_features(
-                    model_version, w_dict[a_id], w_dict[b_id],
-                    h2h_pct, h2h_tot,
-                    records[a_id][0], records[a_id][1],
-                    records[b_id][0], records[b_id][1],
-                    day
-                )
-
-                prob = predict_match(model, features, f)
+                if model_version >= 9:
+                    h2h_rp, h2h_rt = (get_h2h_recent_stats(h2h_recent, a_id, b_id)
+                                      if h2h_recent is not None else (0.5, 0))
+                    prob = predict_match_v9(
+                        model, features, w_dict[a_id], w_dict[b_id],
+                        h2h_pct, h2h_tot,
+                        wins_a=records[a_id][0], losses_a=records[a_id][1],
+                        wins_b=records[b_id][0], losses_b=records[b_id][1],
+                        day=day,
+                        streak_a=streaks[a_id], streak_b=streaks[b_id],
+                        h2h_recent_pct_a=h2h_rp, h2h_recent_total=h2h_rt,
+                    )
+                elif model_version >= 8:
+                    prob = predict_match_v8(
+                        model, features, w_dict[a_id], w_dict[b_id],
+                        h2h_pct, h2h_tot,
+                        wins_a=records[a_id][0], losses_a=records[a_id][1],
+                        wins_b=records[b_id][0], losses_b=records[b_id][1],
+                        day=day,
+                    )
+                else:
+                    f = build_matchup_features(
+                        model_version, w_dict[a_id], w_dict[b_id],
+                        h2h_pct, h2h_tot,
+                        records[a_id][0], records[a_id][1],
+                        records[b_id][0], records[b_id][1],
+                        day
+                    )
+                    prob = predict_match(model, features, f)
 
                 if np.random.random() < prob:
                     winner, loser = a_id, b_id
                 else:
                     winner, loser = b_id, a_id
 
-                # Update records
+                # Update records and signed streak
                 w, l = records[winner]
                 records[winner] = (w + 1, l)
                 w, l = records[loser]
                 records[loser] = (w, l + 1)
+                streaks[winner] = max(1, streaks[winner] + 1)
+                streaks[loser] = min(-1, streaks[loser] - 1)
 
                 faced[a_id].add(b_id)
                 faced[b_id].add(a_id)
@@ -567,13 +591,26 @@ def main(model_path: str, banzuke_path: str, match_path: str,
     """Main entry point."""
 
     matchup_bundle, _, banzuke, match_history = load_data(model_path, banzuke_path, match_path)
+    model_version = matchup_bundle.get('version', 2)
 
-    print(f"\nPreparing wrestlers for {tournament_id}...")
-    wrestlers = prepare_wrestlers(banzuke, match_history, tournament_id)
+    print(f"\nPreparing wrestlers for {tournament_id} (model v{model_version})...")
+    if model_version >= 9:
+        wrestlers = prepare_wrestlers_v9(banzuke, match_history, tournament_id)
+    elif model_version >= 8:
+        wrestlers = prepare_wrestlers_v8(banzuke, match_history, tournament_id)
+    else:
+        wrestlers = prepare_wrestlers(banzuke, match_history, tournament_id)
 
     if wrestlers.empty:
         print("No wrestlers found!")
         return
+
+    # Add a 'division' column for v8/v9 prep paths (legacy prep already provides it).
+    if 'division' not in wrestlers.columns:
+        def _div_for(rank):
+            d, _, _ = _parse_rank(rank)
+            return 'makuuchi' if d in ('Y', 'O', 'S', 'K', 'M') else ('juryo' if d == 'J' else 'other')
+        wrestlers['division'] = wrestlers['rank'].apply(_div_for)
 
     print(f"Found {len(wrestlers)} wrestlers")
     print(f"  Makuuchi: {len(wrestlers[wrestlers['division'] == 'makuuchi'])}")
@@ -581,9 +618,11 @@ def main(model_path: str, banzuke_path: str, match_path: str,
 
     print("Computing H2H history...")
     h2h = compute_h2h(match_history, tournament_id)
+    h2h_recent = compute_h2h_recent(match_history, tournament_id) if model_version >= 9 else None
 
     # Run simulation
-    results = simulate_tournament(matchup_bundle, wrestlers, h2h, n_sims, scheduling)
+    results = simulate_tournament(matchup_bundle, wrestlers, h2h, n_sims, scheduling,
+                                   h2h_recent=h2h_recent)
 
     print(f"\n{'=' * 60}")
     print(f"PREDICTIONS FOR {tournament_id} ({n_sims} simulations, {scheduling} scheduling)")
@@ -643,35 +682,6 @@ def main(model_path: str, banzuke_path: str, match_path: str,
         print(f"\nSaved predicted banzuke to {banzuke_output}")
 
     return results
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Sumo Tournament Simulator v4")
-    parser.add_argument('--tournament', type=int, default=202601,
-                        help="Tournament ID (YYYYMM format)")
-    parser.add_argument('--simulations', type=int, default=500,
-                        help="Number of Monte Carlo simulations")
-    parser.add_argument('--model', type=str, default="matchup_model_v8.joblib",
-                        help="Path to matchup model")
-    parser.add_argument('--banzuke', type=str, default="data/banzuke_detailed.csv",
-                        help="Path to banzuke data")
-    parser.add_argument('--matches', type=str, default="data/match_history_with_kimarite.csv",
-                        help="Path to match history")
-    parser.add_argument('--scheduling', type=str, default='jsa_v2',
-                        choices=['jsa_v2', 'jsa', 'simple'],
-                        help="Scheduling algorithm: jsa_v2 (5-segment), jsa (2-segment), simple")
-    parser.add_argument('--predict-banzuke', action='store_true',
-                        help="Predict next tournament's banzuke")
-    parser.add_argument('--chain', type=int, default=0,
-                        help="Chain N future tournament simulations")
-
-    args = parser.parse_args()
-
-    main(
-        args.model, args.banzuke, args.matches,
-        args.tournament, args.simulations, args.scheduling,
-        args.predict_banzuke, args.chain
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -1128,3 +1138,32 @@ def predict_match_v9(model, features: List[str], a: dict, b: dict,
                                  h2h_recent_pct_a, h2h_recent_total)
     X = pd.DataFrame([f])[features]
     return model.predict_proba(X)[0][1]
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Sumo Tournament Simulator v4")
+    parser.add_argument('--tournament', type=int, default=202601,
+                        help="Tournament ID (YYYYMM format)")
+    parser.add_argument('--simulations', type=int, default=500,
+                        help="Number of Monte Carlo simulations")
+    parser.add_argument('--model', type=str, default="matchup_model_v9.joblib",
+                        help="Path to matchup model")
+    parser.add_argument('--banzuke', type=str, default="data/banzuke_detailed.csv",
+                        help="Path to banzuke data")
+    parser.add_argument('--matches', type=str, default="data/match_history_with_kimarite.csv",
+                        help="Path to match history")
+    parser.add_argument('--scheduling', type=str, default='jsa_v2',
+                        choices=['jsa_v2', 'jsa', 'simple'],
+                        help="Scheduling algorithm: jsa_v2 (5-segment), jsa (2-segment), simple")
+    parser.add_argument('--predict-banzuke', action='store_true',
+                        help="Predict next tournament's banzuke")
+    parser.add_argument('--chain', type=int, default=0,
+                        help="Chain N future tournament simulations")
+
+    args = parser.parse_args()
+
+    main(
+        args.model, args.banzuke, args.matches,
+        args.tournament, args.simulations, args.scheduling,
+        args.predict_banzuke, args.chain
+    )

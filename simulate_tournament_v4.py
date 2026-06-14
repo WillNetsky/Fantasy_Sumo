@@ -19,6 +19,7 @@ from torikumi_scheduler import (
     get_segment, SchedulingSegment
 )
 from banzuke_predictor import predict_next_banzuke, RankPosition
+from predict_wins import calculate_predicted_kinboshi
 
 # Import technique categories
 TECHNIQUE_CATEGORIES = {
@@ -626,6 +627,8 @@ def generate_html_report(results: pd.DataFrame, tournament_id: int,
         "Juryo": "group-j",
     }
 
+    df = df.sort_values('predicted_fantasy_score', ascending=False)
+
     rows_html = []
     for _, row in df.iterrows():
         cat = _draft_category(row['rank'])
@@ -635,10 +638,12 @@ def generate_html_report(results: pd.DataFrame, tournament_id: int,
             f"<tr class='{div_cls} {group_cls}'>"
             f"<td>{row['rikishi']}</td>"
             f"<td>{row['rank']}</td>"
-            f"<td><strong>{row['expected_wins']:.2f}</strong></td>"
-            f"<td>{row['kachi_koshi_prob'] * 100:.1f}%</td>"
-            f"<td>{row['yusho_prob'] * 100:.2f}%</td>"
-            f"<td>{row['jun_yusho_prob'] * 100:.2f}%</td>"
+            f"<td><strong>{row['predicted_fantasy_score']:.2f}</strong></td>"
+            f"<td>{row['wins_pts']:.1f}</td>"
+            f"<td>{row['kk_mk_pts']:.2f}</td>"
+            f"<td>{row['yusho_pts']:.2f}</td>"
+            f"<td>{row['jun_yusho_pts']:.2f}</td>"
+            f"<td>{row['kinboshi_pts']:.2f}</td>"
             f"</tr>"
         )
     table_rows = "\n".join(rows_html)
@@ -701,10 +706,12 @@ window.onload = () => {{ document.querySelector(".filters button[data-div='all']
 <thead><tr>
   <th onclick="sortTable(0)">Rikishi</th>
   <th onclick="sortTable(1)">Rank</th>
-  <th onclick="sortTable(2)">Expected Wins</th>
-  <th onclick="sortTable(3)">Kachi-koshi %</th>
-  <th onclick="sortTable(4)">Yusho %</th>
-  <th onclick="sortTable(5)">Jun-yusho %</th>
+  <th onclick="sortTable(2)">Total Pts</th>
+  <th onclick="sortTable(3)">Win Pts</th>
+  <th onclick="sortTable(4)">KK/MK Pts</th>
+  <th onclick="sortTable(5)">Yusho Pts</th>
+  <th onclick="sortTable(6)">J-Yusho Pts</th>
+  <th onclick="sortTable(7)">Kinboshi Pts</th>
 </tr></thead>
 <tbody>{table_rows}</tbody>
 </table>
@@ -775,6 +782,27 @@ def main(model_path: str, banzuke_path: str, match_path: str,
     jur['expected_wins'] = jur['expected_wins'].round(2)
     jur['kachi_koshi_prob'] = (jur['kachi_koshi_prob'] * 100).round(1).astype(str) + '%'
     print(jur.to_string(index=False))
+
+    # Fantasy points (mirror predict_wins.calculate_fantasy_score)
+    results['wins_pts'] = results['expected_wins']
+    results['kk_mk_pts'] = results['kachi_koshi_prob'] * 1.0 - (1 - results['kachi_koshi_prob']) * 0.5
+    results['yusho_pts'] = results['yusho_prob'] * 5.0
+    results['jun_yusho_pts'] = results['jun_yusho_prob'] * 3.0
+
+    # Restrict yusho/jun-yusho points to Makuuchi (Juryo wrestlers can't win the top-division yusho)
+    juryo_mask = results['division'] != 'makuuchi'
+    results.loc[juryo_mask, ['yusho_pts', 'jun_yusho_pts']] = 0.0
+
+    # Kinboshi points (Maegashira only) — reuse predict_wins helper
+    kinboshi_input = results[['rikishi', 'rank', 'wrestler_id']].copy()
+    kinboshi_df = calculate_predicted_kinboshi(kinboshi_input, match_history)
+    results = results.merge(kinboshi_df, on='rikishi', how='left')
+    results['predicted_kinboshi_wins'] = results['predicted_kinboshi_wins'].fillna(0.0)
+    results['kinboshi_pts'] = results['predicted_kinboshi_wins'] * 2.0
+
+    point_cols = ['wins_pts', 'kk_mk_pts', 'yusho_pts', 'jun_yusho_pts', 'kinboshi_pts']
+    results['predicted_fantasy_score'] = results[point_cols].sum(axis=1)
+    results = results.sort_values('predicted_fantasy_score', ascending=False)
 
     # Save results
     output_file = f"outputs/simulation_v4_{tournament_id}.csv"

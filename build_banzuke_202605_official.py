@@ -14,7 +14,11 @@ TOURNAMENT_ID = 202605
 BANZUKE_PATH = 'data/banzuke_detailed.csv'
 
 RANK_CODES = {'Yokozuna': 'Y', 'Ozeki': 'O', 'Sekiwake': 'S',
-              'Komusubi': 'K', 'Maegashira': 'M', 'Juryo': 'J'}
+              'Komusubi': 'K', 'Maegashira': 'M', 'Juryo': 'J',
+              'Makushita': 'Ms', 'Sandanme': 'Sd',
+              'Jonidan': 'Jd', 'Jonokuchi': 'Jk'}
+
+DIVISIONS = ('Makuuchi', 'Juryo', 'Makushita', 'Sandanme', 'Jonidan', 'Jonokuchi')
 
 
 def to_short_rank(rank_long: str) -> str:
@@ -24,7 +28,7 @@ def to_short_rank(rank_long: str) -> str:
 
 def fetch_official() -> pd.DataFrame:
     rows = []
-    for division in ('Makuuchi', 'Juryo'):
+    for division in DIVISIONS:
         r = requests.get(
             f"https://sumo-api.com/api/basho/{TOURNAMENT_ID}/banzuke/{division}",
             timeout=15,
@@ -43,9 +47,21 @@ def build_rows(official: pd.DataFrame, history: pd.DataFrame) -> pd.DataFrame:
                               .drop_duplicates('rikishi', keep='last')
                               [['rikishi', 'wrestler_id']])
     official = official.merge(latest_by_name, left_on='shikona', right_on='rikishi', how='left')
-    if official['wrestler_id'].isna().any():
-        missing = official[official['wrestler_id'].isna()]['shikona'].tolist()
-        raise RuntimeError(f"Could not map shikona to wrestler_id: {missing}")
+
+    id_dups = official[official['wrestler_id'].notna() &
+                       official['wrestler_id'].duplicated(keep=False)]
+    if not id_dups.empty:
+        print(f"WARNING: {len(id_dups)} roster rows collide on wrestler_id (ambiguous shikona) — dropped:")
+        for _, r in id_dups.iterrows():
+            print(f"  - {r['shikona']} ({r['rank']}) → id={int(r['wrestler_id'])}")
+        official = official[~(official['wrestler_id'].notna() &
+                              official['wrestler_id'].duplicated(keep=False))]
+    unmapped = official[official['wrestler_id'].isna()]
+    if not unmapped.empty:
+        print(f"WARNING: {len(unmapped)} wrestlers had no prior banzuke entry and will be skipped:")
+        for _, r in unmapped.iterrows():
+            print(f"  - {r['shikona']} ({r['rank']})")
+        official = official.dropna(subset=['wrestler_id'])
 
     new_rows = []
     for _, r in official.iterrows():
